@@ -13,14 +13,16 @@ public class TaskPrioritizer {
     private class Task {
         String taskId;
         int urgencyLevel;
+        int addedTime;
         boolean isResolved;
         boolean isActuallyAdded;
         LinkedList<Task> dependsOn;
         LinkedList<Task> isNeededFor;
 
-        Task(String taskId, int urgencyLevel, boolean isActuallyAdded) {
+        Task(String taskId, int urgencyLevel, int addedTime, boolean isActuallyAdded) {
             this.taskId = taskId;
             this.urgencyLevel = urgencyLevel;
+            this.addedTime = addedTime;
             this.isResolved = false;
             this.isActuallyAdded = isActuallyAdded;
             this.dependsOn = new LinkedList<>();
@@ -28,10 +30,11 @@ public class TaskPrioritizer {
         }
     }
 
-    private final int TABLE_SIZE = 100000;
+    private final int TABLE_SIZE = 1048576;
     private LinkedList<Task>[] hashTable;
     private LinkedList<Task>[] urgencyBuckets;
-    private final int MAX_URGENCY = 100000; // Assumed upper bound on urgency levels
+    private int globalTime;
+    private final int MAX_URGENCY = 1048576; // Assumed upper bound on urgency levels
     private int high_urgency = -1;
 
     /**
@@ -58,6 +61,7 @@ public class TaskPrioritizer {
         for (int i = 0; i < urgencyBuckets.length; i++) {
             urgencyBuckets[i] = new LinkedList<>();
         }
+        globalTime = 0;
     }
 
     /*
@@ -98,6 +102,16 @@ public class TaskPrioritizer {
         hashTable[idx].add(task);
     }
 
+    // When a task is updated, it needs to be moved to the correct spot in the new
+    // urgency bucket
+    private void insertSorted(LinkedList<Task> list, Task task) {
+        int i = 0;
+        while (i < list.size() && list.get(i).addedTime < task.addedTime) {
+            i++;
+        }
+        list.add(i, task);
+    }
+
     /**
      * A method to add a new task
      *
@@ -112,18 +126,19 @@ public class TaskPrioritizer {
 
         Task task = findTask(taskId);
         if (task == null) {
-            task = new Task(taskId, urgencyLevel, true);
+            task = new Task(taskId, urgencyLevel, globalTime++, true);
             putTask(task);
         } else {
             // adding existing dependency
             task.urgencyLevel = urgencyLevel;
+            task.addedTime = globalTime++;
             task.isActuallyAdded = true;
         }
 
         for (String depId : dependencies) {
             Task dep = findTask(depId);
             if (dep == null) {
-                dep = new Task(depId, 0, false);
+                dep = new Task(depId, 0, -1, false);
                 putTask(dep);
             }
             if (!dep.isResolved) {
@@ -153,7 +168,7 @@ public class TaskPrioritizer {
         task.urgencyLevel = newUrgencyLevel;
         if (newUrgencyLevel > high_urgency)
             high_urgency = newUrgencyLevel;
-        urgencyBuckets[newUrgencyLevel].add(task);
+        insertSorted(urgencyBuckets[newUrgencyLevel], task);
     }
 
     /**
