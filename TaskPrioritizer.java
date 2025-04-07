@@ -1,7 +1,6 @@
 import java.lang.String;
 import java.util.ArrayList;
 import java.util.LinkedList;
-import java.util.List;
 
 /**
  * TaskPrioritizer class that returns the most urgent
@@ -30,12 +29,20 @@ public class TaskPrioritizer {
         }
     }
 
-    private final int TABLE_SIZE = 1048576;
+    private class UrgencyBucket {
+        int urgency;
+        LinkedList<Task> tasks;
+
+        UrgencyBucket(int urgency) {
+            this.urgency = urgency;
+            this.tasks = new LinkedList<>();
+        }
+    }
+
+    private final int TABLE_SIZE = 500000;
     private LinkedList<Task>[] hashTable;
-    private LinkedList<Task>[] urgencyBuckets;
+    private ArrayList<UrgencyBucket> urgencyList;
     private int globalTime;
-    private final int MAX_URGENCY = 1048576; // Assumed upper bound on urgency levels
-    private int high_urgency = -1;
 
     /**
      * Constructor to initialize the TaskPrioritizer
@@ -55,12 +62,7 @@ public class TaskPrioritizer {
         LinkedList<Task>[] tempHashTable = new LinkedList[TABLE_SIZE];
         hashTable = tempHashTable;
 
-        @SuppressWarnings("unchecked")
-        LinkedList<Task>[] tempUrgencyBuckets = new LinkedList[MAX_URGENCY + 1];
-        urgencyBuckets = tempUrgencyBuckets;
-        for (int i = 0; i < urgencyBuckets.length; i++) {
-            urgencyBuckets[i] = new LinkedList<>();
-        }
+        urgencyList = new ArrayList<>();
         globalTime = 0;
     }
 
@@ -100,6 +102,19 @@ public class TaskPrioritizer {
             hashTable[idx] = new LinkedList<>();
         }
         hashTable[idx].add(task);
+    }
+
+    private UrgencyBucket getOrCreateBucket(int urgency) {
+        for (UrgencyBucket bucket : urgencyList) {
+            if (bucket.urgency == urgency)
+                return bucket;
+        }
+        UrgencyBucket newBucket = new UrgencyBucket(urgency);
+        int i = 0;
+        while (i < urgencyList.size() && urgencyList.get(i).urgency > urgency)
+            i++;
+        urgencyList.add(i, newBucket);
+        return newBucket;
     }
 
     // When a task is updated, it needs to be moved to the correct spot in the new
@@ -146,10 +161,11 @@ public class TaskPrioritizer {
                 dep.isNeededFor.add(task);
             }
         }
-        if (urgencyLevel > high_urgency)
-            high_urgency = urgencyLevel;
 
-        urgencyBuckets[urgencyLevel].add(task);
+        if (task.dependsOn.isEmpty()) {
+            UrgencyBucket bucket = getOrCreateBucket(urgencyLevel);
+            bucket.tasks.add(task);
+        }
     }
 
     /**
@@ -164,11 +180,18 @@ public class TaskPrioritizer {
         if (task == null || task.isResolved || !task.isActuallyAdded)
             return;
 
-        urgencyBuckets[task.urgencyLevel].remove(task);
+        for (UrgencyBucket bucket : urgencyList) {
+            bucket.tasks.remove(task);
+        }
+
         task.urgencyLevel = newUrgencyLevel;
-        if (newUrgencyLevel > high_urgency)
-            high_urgency = newUrgencyLevel;
-        insertSorted(urgencyBuckets[newUrgencyLevel], task);
+        if (task.dependsOn.isEmpty()) {
+            UrgencyBucket bucket = getOrCreateBucket(newUrgencyLevel);
+            int i = 0;
+            while (i < bucket.tasks.size() && bucket.tasks.get(i).addedTime < task.addedTime)
+                i++;
+            bucket.tasks.add(i, task);
+        }
     }
 
     /**
@@ -179,15 +202,22 @@ public class TaskPrioritizer {
      * @return null if there are no unresolved tasks left
      */
     public String resolve() {
-        for (int urgency = high_urgency; urgency >= 0; urgency--) {
-            LinkedList<Task> bucket = urgencyBuckets[urgency];
-            for (int i = 0; i < bucket.size(); i++) {
-                Task task = bucket.get(i);
+        for (UrgencyBucket bucket : urgencyList) {
+            LinkedList<Task> tasks = bucket.tasks;
+            for (int i = 0; i < tasks.size(); i++) {
+                Task task = tasks.get(i);
                 if (!task.isResolved && task.isActuallyAdded && task.dependsOn.isEmpty()) {
                     task.isResolved = true;
-                    bucket.remove(i);
+                    tasks.remove(i);
                     for (Task dependent : task.isNeededFor) {
                         dependent.dependsOn.remove(task);
+                        if (!dependent.isResolved && dependent.isActuallyAdded && dependent.dependsOn.isEmpty()) {
+                            UrgencyBucket depBucket = getOrCreateBucket(dependent.urgencyLevel);
+                            int j = 0;
+                            while (j < depBucket.tasks.size() && depBucket.tasks.get(j).addedTime < dependent.addedTime)
+                                j++;
+                            depBucket.tasks.add(j, dependent);
+                        }
                     }
                     return task.taskId;
                 }
