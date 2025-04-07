@@ -13,16 +13,14 @@ public class TaskPrioritizer {
     private class Task {
         String taskId;
         int urgencyLevel;
-        int addedTime;
         boolean isResolved;
         boolean isActuallyAdded;
         LinkedList<Task> dependsOn;
         LinkedList<Task> isNeededFor;
 
-        Task(String taskId, int urgencyLevel, int addedTime, boolean isActuallyAdded) {
+        Task(String taskId, int urgencyLevel, boolean isActuallyAdded) {
             this.taskId = taskId;
             this.urgencyLevel = urgencyLevel;
-            this.addedTime = addedTime;
             this.isResolved = false;
             this.isActuallyAdded = isActuallyAdded;
             this.dependsOn = new LinkedList<>();
@@ -30,11 +28,11 @@ public class TaskPrioritizer {
         }
     }
 
-    private final int TABLE_SIZE = 500000; // Large power of 2 to reduce collisions
+    private final int TABLE_SIZE = 100000;
     private LinkedList<Task>[] hashTable;
     private LinkedList<Task>[] urgencyBuckets;
-    private int globalTime;
     private final int MAX_URGENCY = 100000; // Assumed upper bound on urgency levels
+    private int high_urgency = -1;
 
     /**
      * Constructor to initialize the TaskPrioritizer
@@ -60,9 +58,11 @@ public class TaskPrioritizer {
         for (int i = 0; i < urgencyBuckets.length; i++) {
             urgencyBuckets[i] = new LinkedList<>();
         }
-        globalTime = 0;
     }
 
+    /*
+     * hash function
+     */
     private int hash(String taskId) {
         int hash = 0;
         for (int i = 0; i < taskId.length(); i++) {
@@ -71,6 +71,10 @@ public class TaskPrioritizer {
         return hash % TABLE_SIZE;
     }
 
+    /*
+     * find the task with the given taskId in the hash table.
+     * If not found, return null
+     */
     private Task findTask(String taskId) {
         int idx = hash(taskId);
         LinkedList<Task> bucket = hashTable[idx];
@@ -83,6 +87,9 @@ public class TaskPrioritizer {
         return null;
     }
 
+    /*
+     * add the given task to the hash table.
+     */
     private void putTask(Task task) {
         int idx = hash(task.taskId);
         if (hashTable[idx] == null) {
@@ -99,28 +106,33 @@ public class TaskPrioritizer {
      * @param dependencies The array of taskIds of tasks the added task depends on
      */
     public void add(String taskId, int urgencyLevel, String[] dependencies) {
+        // checks if task already added
         if (findTask(taskId) != null && findTask(taskId).isActuallyAdded)
             return;
 
         Task task = findTask(taskId);
         if (task == null) {
-            task = new Task(taskId, urgencyLevel, globalTime++, true);
+            task = new Task(taskId, urgencyLevel, true);
             putTask(task);
         } else {
+            // adding existing dependency
             task.urgencyLevel = urgencyLevel;
-            task.addedTime = globalTime++;
             task.isActuallyAdded = true;
         }
 
         for (String depId : dependencies) {
             Task dep = findTask(depId);
             if (dep == null) {
-                dep = new Task(depId, 0, -1, false);
+                dep = new Task(depId, 0, false);
                 putTask(dep);
             }
-            task.dependsOn.add(dep);
-            dep.isNeededFor.add(task);
+            if (!dep.isResolved) {
+                task.dependsOn.add(dep);
+                dep.isNeededFor.add(task);
+            }
         }
+        if (urgencyLevel > high_urgency)
+            high_urgency = urgencyLevel;
 
         urgencyBuckets[urgencyLevel].add(task);
     }
@@ -139,6 +151,8 @@ public class TaskPrioritizer {
 
         urgencyBuckets[task.urgencyLevel].remove(task);
         task.urgencyLevel = newUrgencyLevel;
+        if (newUrgencyLevel > high_urgency)
+            high_urgency = newUrgencyLevel;
         urgencyBuckets[newUrgencyLevel].add(task);
     }
 
@@ -150,7 +164,7 @@ public class TaskPrioritizer {
      * @return null if there are no unresolved tasks left
      */
     public String resolve() {
-        for (int urgency = MAX_URGENCY; urgency >= 0; urgency--) {
+        for (int urgency = high_urgency; urgency >= 0; urgency--) {
             LinkedList<Task> bucket = urgencyBuckets[urgency];
             for (int i = 0; i < bucket.size(); i++) {
                 Task task = bucket.get(i);
