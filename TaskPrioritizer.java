@@ -41,7 +41,7 @@ public class TaskPrioritizer {
         }
     }
 
-    private final int TABLE_SIZE = 500000;
+    private final int TABLE_SIZE = 524287;
     private LinkedList<Task>[] hashTable;
     private ArrayList<UrgencyBucket> urgencyList;
     private int globalTime;
@@ -74,8 +74,8 @@ public class TaskPrioritizer {
      */
     private int hash(String taskId) {
         int hash = 0;
-        for (int i = 0; i < taskId.length(); i++) {
-            hash = (hash * 31 + taskId.charAt(i)) & 0x7fffffff;
+        for (int i = 1; i < taskId.length(); i++) {
+            hash = hash * 31 + (taskId.charAt(i));
         }
         return hash % TABLE_SIZE;
     }
@@ -199,7 +199,10 @@ public class TaskPrioritizer {
      * @return null if there are no unresolved tasks left
      */
     public String resolve() {
-        for (int i = 0; i < urgencyList.size(); i++) {
+        if (maxUrgencyIndex == -1 || maxUrgencyIndex >= urgencyList.size())
+            return null;
+
+        for (int i = maxUrgencyIndex; i < urgencyList.size(); i++) {
             UrgencyBucket bucket = urgencyList.get(i);
             LinkedList<Task> tasks = bucket.tasks;
             while (!tasks.isEmpty()) {
