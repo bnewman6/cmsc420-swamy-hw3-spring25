@@ -17,6 +17,7 @@ public class TaskPrioritizer {
         boolean isActuallyAdded;
         LinkedList<Task> dependsOn;
         LinkedList<Task> isNeededFor;
+        UrgencyBucket currentBucket;
 
         Task(String taskId, int urgencyLevel, int addedTime, boolean isActuallyAdded) {
             this.taskId = taskId;
@@ -26,6 +27,7 @@ public class TaskPrioritizer {
             this.isActuallyAdded = isActuallyAdded;
             this.dependsOn = new LinkedList<>();
             this.isNeededFor = new LinkedList<>();
+            this.currentBucket = null;
         }
     }
 
@@ -117,16 +119,6 @@ public class TaskPrioritizer {
         return newBucket;
     }
 
-    // When a task is updated, it needs to be moved to the correct spot in the new
-    // urgency bucket
-    private void insertSorted(LinkedList<Task> list, Task task) {
-        int i = 0;
-        while (i < list.size() && list.get(i).addedTime < task.addedTime) {
-            i++;
-        }
-        list.add(i, task);
-    }
-
     /**
      * A method to add a new task
      *
@@ -165,6 +157,7 @@ public class TaskPrioritizer {
         if (task.dependsOn.isEmpty()) {
             UrgencyBucket bucket = getOrCreateBucket(urgencyLevel);
             bucket.tasks.add(task);
+            task.currentBucket = bucket;
         }
     }
 
@@ -180,17 +173,20 @@ public class TaskPrioritizer {
         if (task == null || task.isResolved || !task.isActuallyAdded)
             return;
 
-        for (UrgencyBucket bucket : urgencyList) {
-            bucket.tasks.remove(task);
+        if (task.currentBucket != null) {
+            task.currentBucket.tasks.remove(task);
+            task.currentBucket = null;
         }
 
         task.urgencyLevel = newUrgencyLevel;
+
         if (task.dependsOn.isEmpty()) {
             UrgencyBucket bucket = getOrCreateBucket(newUrgencyLevel);
             int i = 0;
             while (i < bucket.tasks.size() && bucket.tasks.get(i).addedTime < task.addedTime)
                 i++;
             bucket.tasks.add(i, task);
+            task.currentBucket = bucket;
         }
     }
 
@@ -217,6 +213,7 @@ public class TaskPrioritizer {
                             while (j < depBucket.tasks.size() && depBucket.tasks.get(j).addedTime < dependent.addedTime)
                                 j++;
                             depBucket.tasks.add(j, dependent);
+                            dependent.currentBucket = depBucket;
                         }
                     }
                     return task.taskId;
